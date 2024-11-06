@@ -126,7 +126,13 @@ Error:
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
 #include <random>
+
+#include "httplib.h"
+#include "inja.hpp"
 
 #include "cudakar.h"
 
@@ -158,12 +164,44 @@ void kardataset_sample(int n, target_func *target, int sample_size, const char *
     ds_file.close();
 }
 
+void kardataset_stream_map(dataset_func *func, const char* fn, void* clientdata) {
+    std::string line, word, temp;
+    std::vector<karfloat> row;
+    std::ifstream ds_file(fn);
+    while (!ds_file.eof()) {
+        row.clear();
+        std::getline(ds_file, line);
+        if (line.rfind("#", 0) == 0) {
+            // A comment
+        }
+        else {
+            std::stringstream s(line);
+            while (getline(s, word, ','))
+            {
+                row.push_back((karfloat) std::stof(word));
+            }
+            func(row, clientdata);
+        }
+    }
+    ds_file.close();
+}
+
+karfloat kardataset_loss_mse(karnode_ptr out, int sample_size, karfloat_ptr* xargs, karfloat_ptr y) {
+    karfloat loss = 0., d;
+    for (int i = 0 ; i < sample_size; i++) {
+        d = karnode_eval(out, xargs[i]) - y[i];
+        loss += d * d;
+    }
+    return loss;
+}
+
 // -------------------------------------------------------------------------------------
 // Node operations
 karnode_ptr karnode_new(int n, short kt) {
     karnode_ptr nodep = new karnode;
     nodep->kartype = kt;
     nodep->n_edges = n;
+    nodep->id = gIDNODE++;
     karedge_ptr* ep = new karedge_ptr[n];
     nodep->edges = ep;
     if (KAR_OUTERNODE == kt) {
@@ -189,10 +227,60 @@ karfloat karnode_eval(karnode_ptr nodep, karfloat* xargs) {
         }
         else {
             karfloat yi = karnode_eval(nodep->subnodes[i], xargs);
-            res += karedge_eval(nodep->edges[i], yi);
+            karfloat zi = karedge_eval(nodep->edges[i], yi);
+
+            if (yi > 100. || yi < -100.) {
+                std::cout << "Node eval (1): High res! " << yi << "\t" << std::endl;
+                            }
+                        
+           
+           //std::cout << "\tZi: " << yi << "\t" << zi << std::endl;
+           res += zi;
         }
     }
+
+    if (res > 100. || res < -100.) {
+        std::cout << "Node eval (2): High res! " << res << "\t" << std::endl;
+        
+    }
     return res;
+}
+
+void karnode_print(const char *title, karnode_ptr nodep) {
+    char buf[3];
+    std::cout << "Node: " << title << "\t" << nodep->id << std::endl;
+    for (int i = 0; i < nodep->n_edges; i++) {
+        sprintf(buf, "E%d", i);
+        karedge_print(buf, nodep->edges[i]);
+    }
+}
+
+void karnode_update(karnode_ptr nodep, karfloat* xargs, karfloat y) {
+    karfloat yest = karnode_eval(nodep, xargs);
+    
+
+    karnode_print( "Pre-update ", nodep);
+
+    if (KAR_INNERNODE == nodep->kartype) {
+        karfloat d = y / nodep->n_edges;
+        for (int i = 0; i < nodep->n_edges; i++) {
+            karedge_update(nodep->edges[i], xargs[i], d);
+        }
+    }
+
+    if (KAR_OUTERNODE == nodep->kartype) {
+        karfloat d = (y - yest) / nodep->n_edges;
+        for (int i = 0; i < nodep->n_edges; i++) {
+            // Update outer edges
+            karfloat zi = karnode_eval(nodep->subnodes[i], xargs);
+            karedge_rescale(nodep->edges[i], zi);
+            karedge_update(nodep->edges[i], zi, d);
+            // Update inner edges
+            karnode_update(nodep->subnodes[i], xargs, d);
+        }
+    }
+
+    karnode_print("Post update ", nodep);
 }
 
 // -------------------------------------------------------------------------------------
@@ -207,8 +295,30 @@ karedge_ptr karedge_new(int npoints, karfloat xmin, karfloat xmax) {
     edgep->xmax = xmax;
     edgep->delta = (xmax - xmin) / (npoints - 1);
     edgep->f = fp;
-    for (int i = 0; i < npoints; edgep->f[i++] = (karfloat).5);
+
+    std::random_device rd;  // a seed source for the random number engine
+    std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
+    std::uniform_int_distribution<> distrib(10, 90);
+
+    for (int i = 0; i < npoints; edgep->f[i++] = (karfloat) distrib(gen)/100.);
     return edgep;
+}
+
+void karedge_rescale(karedge_ptr edgep, karfloat x) {
+    karfloat range;
+    bool shift = false;
+    if (x < edgep->xmin) {
+        edgep->xmin = x; shift = true;
+    }
+    if (x > edgep->xmax) {
+        edgep->xmax = x; shift = true;
+    }
+    if (shift) {
+        range = edgep->xmax - edgep->xmin;
+        edgep->xmin -= .01 * range;
+        edgep->xmax += .01 * range;
+        edgep->delta = (edgep->xmax - edgep->xmin) / (edgep->n_f - 1);
+    }
 }
 
 void karedge_delete(karedge_ptr edgep) {
@@ -216,22 +326,44 @@ void karedge_delete(karedge_ptr edgep) {
     delete edgep;
 }
 
+void karedge_print(const char* title, karedge_ptr edgep) {
+    std::cout << title << ": ";
+    for (int i = 0; i < edgep->n_f; i++) {
+        std::cout << std::fixed << std::setw(5) << std::setprecision(4) << edgep->f[i] << " ";
+    }
+    std::cout << "[" << edgep->xmin << ", " << edgep->xmax << "]" << std::endl;
+}
+
 karfloat karedge_eval(karedge_ptr edgep, karfloat x ) {
     // Adjust if last f-point
-    if (x >= edgep->xmax) x -= 0.000001;
+    if (x >= edgep->xmax) x = edgep->xmax - 0.000001;
+    if (x <= edgep->xmin) x = edgep->xmin + 0.000001;
     int index = KAREDGEP_INDEXOF(x);
+    if (index < 0) {
+        std::cerr << "Eval: Negative index! " << x << std::endl;
+        exit(1);
+    }
     karfloat offset = ((x - edgep->xmin) / edgep->delta) - index;
     return edgep->f[index] * (1. - offset) + edgep->f[index + 1] * offset;
 }
 
 void karedge_update(karedge_ptr edgep, karfloat x, karfloat d) {
-    if (x >= edgep->xmax) x -= 0.000001;
+    if (x >= edgep->xmax) x = edgep->xmax - 0.000001;
+    if (x <= edgep->xmin) x = edgep->xmin + 0.000001;
     int index = KAREDGEP_INDEXOF(x);
+    if (index < 0) {
+        std::cerr << "Update: Negative index! " << x << std::endl;
+        exit(1);
+    }
     karfloat offset = ((x - edgep->xmin) / edgep->delta) - index;
     karfloat est = edgep->f[index] * (1. - offset) + edgep->f[index + 1] * offset;
     karfloat den = (1. - offset) * (1. - offset) + offset * offset;
     den *= gALPHA;
+    if (den > 100. || den < -100.) {
+        std::cerr << "Update: High den! " << den << "\tOffset: " << offset << std::endl;
+    }
     // Standard gradient descent
+    std::cout << "Edge update " << index << ": " << d * (1. - offset) / den << ", " << d * offset / den << std::endl;
     edgep->f[index] += d * (1. - offset) / den;
     edgep->f[index + 1] += d * offset / den;
 }
@@ -246,8 +378,55 @@ karfloat target_test_1(int n, karfloat_ptr xargs) {
     return std::sin(xargs[0]) + std::cos(xargs[0] * 2.);
 }
 
+void ds_print(std::vector<karfloat> row, void* ignore) {
+    int n = row.size();
+    if (n <= 0) return;
+
+    for (int i = 0; i < n - 1; i++) {
+        std::cout << std::fixed << row[i] << "\t";
+    }
+    std::cout << "--> " << row[n - 1] << std::endl;
+}
+
+void ds_update(std::vector<karfloat> row, void* clientdata) {
+    int n = row.size();
+    if (n <= 0) return;
+
+    karnode_ptr out = (karnode_ptr)clientdata;
+    karfloat_ptr xargs = new karfloat[n - 1];
+    for (int i = 0; i < n - 1; i++) xargs[i] = row[i];
+    
+    for (int i = 0; i < n ; i++) std::cout << std::fixed << row[i] << "\t";
+    std::cout << std::endl;
+
+    karnode_update(out, xargs, row[n - 1]);
+
+    delete xargs;
+}
+
+typedef struct {
+    karnode_ptr out;
+    double cumul;
+} mse_clientdata, *mse_clientdata_ptr;
+
+void ds_mse_loss(std::vector<karfloat> row, void* clientdata) {
+    int n = row.size();
+    if (n <= 0) return;
+
+    mse_clientdata_ptr g = (mse_clientdata_ptr)clientdata;
+    karfloat_ptr xargs = new karfloat[n - 1];
+    for (int i = 0; i < n - 1; i++) xargs[i] = row[i];
+
+    karfloat yest = karnode_eval(g->out, xargs);
+    // std::cout << std::fixed << yest << "\t" << row[n - 1] << "\t" << g->cumul << std::endl;
+    g->cumul += (yest - row[n - 1]) * (yest - row[n - 1]);
+
+    delete xargs;
+}
+
+
 int main() {
-    kardataset_sample(1, target_test_1, 30, "C:\\Users\\chauv\\Documents\\ds_train.dat");
+    // kardataset_sample(1, target_test_1, 30, "C:\\Users\\chauv\\Documents\\ds_train.dat");
 
     // A 1/3/1 KAN
     karedge_ptr* inners = new karedge_ptr[3];
@@ -267,9 +446,36 @@ int main() {
         out->subnodes[i] = subnodes[i];
     }
 
-    karfloat xargs[1] = { .333 };
-    std::cout << std::fixed << karnode_eval(out, xargs) << std::endl;
-    
+
+    //for (int epoch = 0; epoch < 1; epoch++) {
+    //    mse_clientdata data = { out, 0. };
+    //    kardataset_stream_map(ds_mse_loss, DS_TRAINFN, (void*)&data);
+    //    std::cout << "MSE Loss: " << data.cumul << std::endl;
+    //    kardataset_stream_map(ds_update, DS_TRAINFN, (void*)out);
+    //}
+    //mse_clientdata data = { out, 0. };
+    //kardataset_stream_map(ds_mse_loss, DS_TRAINFN, (void*)&data);
+    //std::cout << "MSE Loss: " << data.cumul << std::endl;
+
+    // HTTP
+    httplib::Server svr;
+
+    svr.Get("/hi", [](const httplib::Request&, httplib::Response& res) {
+        inja::json data;
+        inja::Environment env;
+        data["title"] = "Dashboard";
+        inja::Template temp = env.parse_template("templates/dashboard.html");
+        std::string resp = env.render(temp, data);
+
+        res.set_content(resp, "text/html");
+        });
+
+    svr.Get("/stop", [&](const httplib::Request& req, httplib::Response& res) {
+        svr.stop();
+        });
+
+    svr.listen("0.0.0.0", 8080);
+
     delete out;
 
     return 0;
