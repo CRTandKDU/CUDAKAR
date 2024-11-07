@@ -5,68 +5,196 @@
     <meta charset="utf-8" />
     <title>{{ title }}</title>
     <!-- Load d3.js -->
-    <script src="https://d3js.org/d3.v4.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <!--    <script src="https://d3js.org/d3.v4.js"></script>-->
 
 </head>
 <body>
-    <!-- Create a div where the graph will take place -->
-    <div id="my_dataviz"></div>
-    <script>
+    <!-- Create divs where the graph will take place -->
+    <table>
+        <thead>
+            <td>Outer Funcs</td>
+            <td>Inner Funcs</td>
+        </thead>
+        <tr>
+            <td>
+                <div class="outer_funcviz " id="funcviz_0"></div>
+                <div class="outer_funcviz " id="funcviz_1"></div>
+                <div class="outer_funcviz " id="funcviz_2"></div>
+            </td>
+        
+            <td>
+                <div class="inner_funcviz " id="funcviz_3"></div>
+                <div class="inner_funcviz " id="funcviz_4"></div>
+                <div class="inner_funcviz " id="funcviz_5"></div>
+            </td>
+        </tr>
+    </table>
+    <br />
+    <div id="loss" style="font-size: 32px !important; color: #1014c3;"></div>
+    <br/>
+    <a href="stop">EXIT</a>
+    <button id="epoch">Epoch</button>
 
-        function point(x, y) {
-            this.x = x;
-            this.y = y;
-        }
+    <script type="module">
 
-        var fpoints = [
-            new point(0, .5),
-            new point(1.07, .35),
-            new point(3.14, .7)
-        ];
+        var nepochs = 0;
 
-        // set the dimensions and margins of the graph
-        var margin = { top: 10, right: 30, bottom: 30, left: 60 },
-            width = 460 - margin.left - margin.right,
-            height = 400 - margin.top - margin.bottom;
+        // Set the dimensions and margins of the graph
+        var margin = { top: 10, right: 30, bottom: 30, left: 30 },
+            width = 230 - margin.left - margin.right,
+            height = 200 - margin.top - margin.bottom;
 
-        // append the svg object to the body of the page
-        var svg = d3.select("#my_dataviz")
+        // Initialise a X axis:
+        var x = d3.scaleLinear().range([0, width]);
+        var xAxis = d3.axisBottom().scale(x).ticks(5);
+        
+        // Initialize an Y axis
+        var y = d3.scaleLinear().range([height, 0]);
+        var yAxis = d3.axisLeft().scale(y).ticks(5);
+
+        // Append the svg objects to the body of the page
+        var outer_svgs = d3.selectAll(".outer_funcviz")
             .append("svg")
             .attr("width", width + margin.left + margin.right)
             .attr("height", height + margin.top + margin.bottom)
             .append("g")
             .attr("transform",
                 "translate(" + margin.left + "," + margin.top + ")");
-       
-        // x-axis
-        var xaxis = d3.scaleLinear()
-            .domain([d3.min(fpoints, function (d) { return +d.x; }), d3.max(fpoints, function (d) { return +d.x; })])
-            .range([0, width]);
-
-        svg.append("g")
+        outer_svgs
+            .append("g")
             .attr("transform", "translate(0," + height + ")")
-            .call(d3.axisBottom(xaxis).ticks(7));
-        // y-axis
-        var yaxis = d3.scaleLinear()
-            .domain([d3.min([0, d3.min(fpoints, function (d) { return +d.y; })]),
-            d3.max(fpoints, function (d) { return +d.y; })])
-            .range([height, 0]);
-        svg.append("g")
-            .call(d3.axisLeft(yaxis).ticks(10));
+            .attr("class", "myXaxis");
+        outer_svgs
+            .append("g")
+            .attr("class", "myYaxis");
 
+        var inner_svgs = d3.selectAll(".inner_funcviz")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform",
+                "translate(" + margin.left + "," + margin.top + ")");
+        inner_svgs
+            .append("g")
+            .attr("transform", "translate(0," + height + ")")
+            .attr("class", "myXaxis");
+        inner_svgs
+            .append("g")
+            .attr("class", "myYaxis");
 
-        // Add the line
-        svg.append("path")
-            .datum(fpoints)
-            .attr("fill", "none")
-            .attr("stroke", "steelblue")
-            .attr("stroke-width", 1.5)
-            .attr("d", d3.line()
-                .x(function (d) { return xaxis(d.x); })
-                .y(function (d) { return yaxis(d.y); })
-            )
+        function update(svg, data, linecolor) {
+            // See: https://d3-graph-gallery.com/graph/line_change_data.html
+            // Create the X axis:
+            x.domain([d3.min(data, function (d) { return +d.x; }), d3.max(data, function (d) { return +d.x; })]);
+            svg.selectAll(".myXaxis").transition()
+                .duration(3000)
+                .call(xAxis);
 
+            // Create the Y axis
+            y.domain([  d3.min([0, d3.min(data, function (d) { return +d.y; })]),
+                        d3.max(data, function (d) { return +d.y; })]);
+            svg.selectAll(".myYaxis")
+                .transition()
+                .duration(3000)
+                .call(yAxis);
 
+            // Create a update selection: bind to the new data
+            var u = svg.selectAll(".lineTest")
+                .data([data], function (d) { return d.x });
+
+            // Updata the line
+            u
+                .enter()
+                .append("path")
+                .attr("class", "lineTest")
+                .merge(u)
+                .transition()
+                .duration(3000)
+                .attr("d", d3.line()
+                    .x(function (d) { return x(d.x); })
+                    .y(function (d) { return y(d.y); }))
+                .attr("fill", "none")
+                .attr("stroke", linecolor)
+                .attr("stroke-width", 2.5)
+        }
+
+        function addLine(svg, fpoints) {
+            // x-axis
+            var xaxis = d3.scaleLinear()
+                .domain([d3.min(fpoints, function (d) { return +d.x; }), d3.max(fpoints, function (d) { return +d.x; })])
+                .range([0, width]);
+            svg.append("g")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(xaxis).ticks(5));
+            // y-axis
+            var yaxis = d3.scaleLinear()
+                .domain([d3.min([0, d3.min(fpoints, function (d) { return +d.y; })]),
+                d3.max(fpoints, function (d) { return +d.y; })])
+                .range([height, 0]);
+            svg.append("g")
+                .call(d3.axisLeft(yaxis).ticks(5));
+
+            svg.append("path")
+                .datum(fpoints)
+                .attr("fill", "none")
+                .attr("stroke", "steelblue")
+                .attr("stroke-width", 1.5)
+                .attr("d", d3.line()
+                    .x(function (d) { return xaxis(d.x); })
+                    .y(function (d) { return yaxis(d.y); })
+                );
+        }
+
+        async function get_fpoints() {
+            const data = await d3.json("http://localhost:8080/data");
+            console.log(data);
+            return data;
+        }
+
+        function epoch() {
+            nepochs += 1;
+            get_fpoints().then((data) => {
+                outer_svgs.data(data.outer_fpoints)
+                    .join(
+                        enter => enter,
+                        update => update,
+                        exit => exit.remove()
+                    )
+                    .each(function (d) {
+                        // addLine(d3.select(this), d);
+                        update(d3.select(this), d, "steelblue")
+                    });
+                let inner_data = [];
+                for (const d of data.inner_fpoints) {
+                    inner_data.push(d[0]);
+                }
+                inner_svgs.data(inner_data)
+                    .each(function (d) {
+                        // addLine(d3.select(this), d);
+                        update(d3.select(this), d, "red")
+                    });
+                document.getElementById("loss").textContent = "Epoch: " + nepochs + " MSE: " + data.loss.toLocaleString(undefined, { minimumFractionDigits: 2 });
+            });
+        }
+
+        document.getElementById("epoch").onclick = epoch;
+
+        // Initialize from data passed to template
+        outer_svgs.data({{ outer_fpoints }})
+            .each(function (d) {
+                update(d3.select(this), d, "steelblue");
+            });
+        document.getElementById("loss").textContent = "Epoch: " + nepochs + " MSE: " + {{ loss }}.toLocaleString(undefined, { minimumFractionDigits: 2 });
+        var inner_data = [];
+        for (const d of {{ inner_fpoints }} ) {
+            inner_data.push(d[0]);
+        }
+        inner_svgs.data(inner_data)
+            .each(function (d) {
+                update(d3.select(this), d, "red");
+            });
 
     </script>
 </body>

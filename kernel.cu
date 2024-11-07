@@ -424,6 +424,45 @@ void ds_mse_loss(std::vector<karfloat> row, void* clientdata) {
     delete xargs;
 }
 
+inja::json data_to_json( karnode_ptr out ) {
+    // JSON-serialize edges current definitions
+    inja::json outer_jdata, inner_jdata, info;
+    for (int i = 0; i < out->n_edges; i++) {
+        inja::json jdata_i;
+        for (int j = 0; j < out->edges[i]->n_f; j++) {
+            inja::json jdata_ipoint;
+            jdata_ipoint["x"] = out->edges[i]->xmin + j * out->edges[i]->delta;
+            jdata_ipoint["y"] = out->edges[i]->f[j];
+            jdata_i[j] = jdata_ipoint;
+        }
+        outer_jdata[i] = jdata_i;
+    }
+    info["outer_fpoints"] = outer_jdata;
+    
+    for (int i = 0; i < out->n_edges; i++) {
+        inja::json jdata_i;
+        for (int j = 0; j < out->subnodes[i]->n_edges; j++) {
+            inja::json jdata_j;
+            karedge_ptr edgep = out->subnodes[i]->edges[j];
+            for (int k = 0; k < edgep->n_f; k++) {
+                inja::json jdata_kpoint;
+                jdata_kpoint["x"] = edgep->xmin + k * edgep->delta;
+                jdata_kpoint["y"] = edgep->f[k];
+                jdata_j[k] = jdata_kpoint;
+            }
+            jdata_i[j] = jdata_j;
+        }
+        inner_jdata[i] = jdata_i;
+    }
+    info["inner_fpoints"] = inner_jdata;
+
+    // Compute and JSON-serialize MSE loss
+    mse_clientdata data = { out, 0. };
+    kardataset_stream_map(ds_mse_loss, DS_TRAINFN, (void*)&data);
+    info["loss"] = data.cumul;
+    return info;
+}
+
 
 int main() {
     // kardataset_sample(1, target_test_1, 30, "C:\\Users\\chauv\\Documents\\ds_train.dat");
@@ -460,14 +499,21 @@ int main() {
     // HTTP
     httplib::Server svr;
 
-    svr.Get("/hi", [](const httplib::Request&, httplib::Response& res) {
-        inja::json data;
+    svr.Get("/hi", [&](const httplib::Request&, httplib::Response& res) {
+        inja::json data = data_to_json( out );  
         inja::Environment env;
         data["title"] = "Dashboard";
         inja::Template temp = env.parse_template("templates/dashboard.html");
         std::string resp = env.render(temp, data);
 
         res.set_content(resp, "text/html");
+        });
+
+    svr.Get("/data", [&](const httplib::Request& req, httplib::Response& res) {
+        kardataset_stream_map(ds_update, DS_TRAINFN, (void*)out);
+
+        inja::json info = data_to_json(out);
+        res.set_content(info.dump(), "application/json");
         });
 
     svr.Get("/stop", [&](const httplib::Request& req, httplib::Response& res) {
