@@ -406,6 +406,31 @@ void ds_update(std::vector<karfloat> row, void* clientdata) {
 
 typedef struct {
     karnode_ptr out;
+    int count;
+    inja::json points;
+    inja::json est_points;
+} est_clientdata, * est_clientdata_ptr;
+
+void ds_estimate(std::vector<karfloat> row, void* clientdata) {
+    int n = row.size();
+    if (n <= 0) return;
+
+    est_clientdata_ptr est = (est_clientdata_ptr)clientdata;
+    karfloat_ptr xargs = new karfloat[n - 1];
+    for (int i = 0; i < n - 1; i++) xargs[i] = row[i];
+
+    karfloat yest = karnode_eval(est->out, xargs);
+    // Only one input vatiable here
+    inja::json pt, ept;
+    pt["x"] = xargs[0]; pt["y"] = row[n - 1];
+    ept["x"] = xargs[0]; ept["y"] = yest;
+    est->points[est->count] = pt;
+    est->est_points[est->count] = ept;
+    est->count += 1;
+}
+
+typedef struct {
+    karnode_ptr out;
     double cumul;
 } mse_clientdata, *mse_clientdata_ptr;
 
@@ -456,7 +481,15 @@ inja::json data_to_json( karnode_ptr out ) {
     }
     info["inner_fpoints"] = inner_jdata;
 
+    // Compute current estimation
+    inja::json pt, ept;
+    est_clientdata estimate = { out, 0, pt, ept };
+    kardataset_stream_map(ds_estimate, DS_TRAINFN, (void*)&estimate);
+    info["target"] = estimate.points;
+    info["estimate"] = estimate.est_points;
+
     // Compute and JSON-serialize MSE loss
+    // Note: could be merged wiht previous map.
     mse_clientdata data = { out, 0. };
     kardataset_stream_map(ds_mse_loss, DS_TRAINFN, (void*)&data);
     info["loss"] = data.cumul;

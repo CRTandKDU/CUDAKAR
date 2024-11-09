@@ -12,26 +12,38 @@
 <body>
     <!-- Create divs where the graph will take place -->
     <table>
-        <thead>
-            <td>Outer Funcs</td>
+        <thead style="font-size: 24px !important; color: #1014c3;">
             <td>Inner Funcs</td>
+            <td>Outer Funcs</td>
+            <td>Target Func</td>
         </thead>
         <tr>
-            <td>
-                <div class="outer_funcviz " id="funcviz_0"></div>
-                <div class="outer_funcviz " id="funcviz_1"></div>
-                <div class="outer_funcviz " id="funcviz_2"></div>
-            </td>
-        
             <td>
                 <div class="inner_funcviz " id="funcviz_3"></div>
                 <div class="inner_funcviz " id="funcviz_4"></div>
                 <div class="inner_funcviz " id="funcviz_5"></div>
             </td>
+        
+            <td>
+                <div class="outer_funcviz " id="funcviz_0"></div>
+                <div class="outer_funcviz " id="funcviz_1"></div>
+                <div class="outer_funcviz " id="funcviz_2"></div>
+            </td>
+
+            <td>
+                <div class="target_funcviz " id="funcviz_6"></div>
+
+            </td>
+        </tr>
+        <tr style="outline: thin solid black;">
+            <td></td>
+            <td></td>
+            <td>
+                <div id="loss" style="font-size: 32px !important; color: #1014c3;"></div>
+            </td>
         </tr>
     </table>
     <br />
-    <div id="loss" style="font-size: 32px !important; color: #1014c3;"></div>
     <br/>
     <a href="stop">EXIT</a>
     <button id="epoch">Epoch</button>
@@ -84,6 +96,44 @@
             .append("g")
             .attr("class", "myYaxis");
 
+        // Target func visualization is similar
+
+        var tmargin = { top: 10, right: 30, bottom: 30, left: 30 },
+            twidth = 460 - tmargin.left - tmargin.right,
+            theight = 400 - tmargin.top - tmargin.bottom;
+
+        // Initialise a X axis:
+        var tx = d3.scaleLinear().range([0, twidth]);
+        var txAxis = d3.axisBottom().scale(tx).ticks(5);
+
+        // Initialize an Y axis
+        var ty = d3.scaleLinear().range([theight, 0]);
+        var tyAxis = d3.axisLeft().scale(ty).ticks(5);
+
+        var target_svgs = d3.selectAll(".target_funcviz")
+            .append("svg")
+            .attr("width", twidth + tmargin.left + tmargin.right)
+            .attr("height", theight + tmargin.top + tmargin.bottom)
+            .append("g")
+            .attr("transform",
+                "translate(" + tmargin.left + "," + tmargin.top + ")");
+        target_svgs
+            .append("g")
+            .attr("transform", "translate(0," + theight + ")")
+            .attr("class", "mytXaxis");
+        target_svgs
+            .append("g")
+            .attr("class", "mytYaxis");
+
+        let x_legend = 300,
+            y_legend = 10;
+        target_svgs.append("circle").attr("cx", x_legend).attr("cy", y_legend).attr("r", 6).style("fill", "darkgreen")
+        target_svgs.append("circle").attr("cx", x_legend).attr("cy", y_legend+30).attr("r", 6).style("fill", "darkseagreen")
+        target_svgs.append("text").attr("x", x_legend+20).attr("y", y_legend).text("Target function").style("font-size", "15px").attr("alignment-baseline", "middle")
+        target_svgs.append("text").attr("x", x_legend+20).attr("y", y_legend+30).text("KAN Estimate").style("font-size", "15px").attr("alignment-baseline", "middle")
+
+
+
         function update(svg, data, linecolor) {
             // See: https://d3-graph-gallery.com/graph/line_change_data.html
             // Create the X axis:
@@ -120,6 +170,43 @@
                 .attr("stroke-width", 2.5)
         }
 
+        function update_target(svg, data, lineclass, linecolor) {
+            console.log(data);
+            // See: https://d3-graph-gallery.com/graph/line_change_data.html
+            // Create the X axis:
+            tx.domain([d3.min(data, function (d) { return +d.x; }), d3.max(data, function (d) { return +d.x; })]);
+            svg.selectAll(".mytXaxis").transition()
+                .duration(3000)
+                .call(txAxis);
+
+            // Create the Y axis
+            ty.domain([d3.min([0, d3.min(data, function (d) { return +d.y; })]),
+            d3.max(data, function (d) { return +d.y; })]);
+            svg.selectAll(".mytYaxis")
+                .transition()
+                .duration(3000)
+                .call(tyAxis);
+
+            // Create a update selection: bind to the new data
+            var u = svg.selectAll("."+lineclass)
+                .data([data], function (d) { return d.x });
+
+            // Updata the line
+            u
+                .enter()
+                .append("path")
+                .attr("class", lineclass)
+                .merge(u)
+                .transition()
+                .duration(3000)
+                .attr("d", d3.line()
+                    .x(function (d) { return tx(d.x); })
+                    .y(function (d) { return ty(d.y); }))
+                .attr("fill", "none")
+                .attr("stroke", linecolor)
+                .attr("stroke-width", 2.5)
+        }
+
         function addLine(svg, fpoints) {
             // x-axis
             var xaxis = d3.scaleLinear()
@@ -147,6 +234,8 @@
                 );
         }
 
+        function pt_cmp(pa, pb) { return pa.x - pb.x; }
+
         async function get_fpoints() {
             const data = await d3.json("http://localhost:8080/data");
             console.log(data);
@@ -164,8 +253,9 @@
                     )
                     .each(function (d) {
                         // addLine(d3.select(this), d);
-                        update(d3.select(this), d, "steelblue")
+                        update(d3.select(this), d, "steelblue");
                     });
+
                 let inner_data = [];
                 for (const d of data.inner_fpoints) {
                     inner_data.push(d[0]);
@@ -173,8 +263,17 @@
                 inner_svgs.data(inner_data)
                     .each(function (d) {
                         // addLine(d3.select(this), d);
-                        update(d3.select(this), d, "red")
+                        update(d3.select(this), d, "red");
                     });
+
+                let sorted_points = data.target.sort(pt_cmp),
+                    sorted_estimates = data.estimate.sort(pt_cmp);
+                target_svgs
+                    .each(function () {
+                        update_target(d3.select(this), sorted_points, "line_target", "darkgreen");
+                        update_target(d3.select(this), sorted_estimates, "line_estimate", "darkseagreen");
+                    });
+
                 document.getElementById("loss").textContent = "Epoch: " + nepochs + " MSE: " + data.loss.toLocaleString(undefined, { minimumFractionDigits: 2 });
             });
         }
@@ -194,6 +293,15 @@
         inner_svgs.data(inner_data)
             .each(function (d) {
                 update(d3.select(this), d, "red");
+            });
+
+        let data_pts = {{ target }};
+        let sorted_pts = data_pts.sort(pt_cmp);
+        let est_pts = {{ estimate }};
+        let sorted_ests = est_pts.sort(pt_cmp);
+        target_svgs
+            .each(function () {
+                update_target(d3.select(this), sorted_pts, "line_target", "darkgreen");
             });
 
     </script>
