@@ -51,6 +51,7 @@ void karedge_rescale(karedge_ptr edgep, karfloat x);
 void karedge_print(const char* title, karedge_ptr edgep);
 karfloat karedge_eval(karedge_ptr edgep, karfloat x);
 void karedge_update(karedge_ptr edgep, karfloat x, karfloat d);
+karfloat karedge_differential(karedge_ptr edgep, karfloat z);
 
 karnode_ptr karnode_new(int n, short kt);
 void karnode_delete(karnode_ptr nodep);

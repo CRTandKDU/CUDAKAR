@@ -136,6 +136,7 @@ Error:
 
 #include "cudakar.h"
 
+#define DIFF_CORR 1
 karfloat gALPHA = 1.;
 
 // -------------------------------------------------------------------------------------
@@ -259,7 +260,7 @@ void karnode_update(karnode_ptr nodep, karfloat* xargs, karfloat y) {
     karfloat yest = karnode_eval(nodep, xargs);
     
 
-    karnode_print( "Pre-update ", nodep);
+    //karnode_print( "Pre-update ", nodep);
 
     if (KAR_INNERNODE == nodep->kartype) {
         karfloat d = y / nodep->n_edges;
@@ -276,11 +277,21 @@ void karnode_update(karnode_ptr nodep, karfloat* xargs, karfloat y) {
             karedge_rescale(nodep->edges[i], zi);
             karedge_update(nodep->edges[i], zi, d);
             // Update inner edges
+#ifdef DIFF_CORR
+            karfloat diff = karedge_differential(nodep->edges[i], zi);
+            if (diff >= 0) {
+                karnode_update(nodep->subnodes[i], xargs, d);
+            }
+            else {
+                karnode_update(nodep->subnodes[i], xargs, -d);
+            }
+#else
             karnode_update(nodep->subnodes[i], xargs, d);
+#endif
         }
     }
 
-    karnode_print("Post update ", nodep);
+    //karnode_print("Post update ", nodep);
 }
 
 // -------------------------------------------------------------------------------------
@@ -347,6 +358,15 @@ karfloat karedge_eval(karedge_ptr edgep, karfloat x ) {
     return edgep->f[index] * (1. - offset) + edgep->f[index + 1] * offset;
 }
 
+karfloat karedge_differential(karedge_ptr edgep, karfloat z) {
+    int index = KAREDGEP_INDEXOF(z);
+    if (index < 0) {
+        std::cerr << "Differential: Negative index! " << z << std::endl;
+        exit(1);
+    }
+    return (edgep->f[index + 1] - edgep->f[index]) / edgep->delta;
+}
+
 void karedge_update(karedge_ptr edgep, karfloat x, karfloat d) {
     if (x >= edgep->xmax) x = edgep->xmax - 0.000001;
     if (x <= edgep->xmin) x = edgep->xmin + 0.000001;
@@ -363,7 +383,7 @@ void karedge_update(karedge_ptr edgep, karfloat x, karfloat d) {
         std::cerr << "Update: High den! " << den << "\tOffset: " << offset << std::endl;
     }
     // Standard gradient descent
-    std::cout << "Edge update " << index << ": " << d * (1. - offset) / den << ", " << d * offset / den << std::endl;
+    //std::cout << "Edge update " << index << ": " << d * (1. - offset) / den << ", " << d * offset / den << std::endl;
     edgep->f[index] += d * (1. - offset) / den;
     edgep->f[index + 1] += d * offset / den;
 }
@@ -396,8 +416,8 @@ void ds_update(std::vector<karfloat> row, void* clientdata) {
     karfloat_ptr xargs = new karfloat[n - 1];
     for (int i = 0; i < n - 1; i++) xargs[i] = row[i];
     
-    for (int i = 0; i < n ; i++) std::cout << std::fixed << row[i] << "\t";
-    std::cout << std::endl;
+    //for (int i = 0; i < n ; i++) std::cout << std::fixed << row[i] << "\t";
+    //std::cout << std::endl;
 
     karnode_update(out, xargs, row[n - 1]);
 
@@ -420,7 +440,7 @@ void ds_estimate(std::vector<karfloat> row, void* clientdata) {
     for (int i = 0; i < n - 1; i++) xargs[i] = row[i];
 
     karfloat yest = karnode_eval(est->out, xargs);
-    // Only one input vatiable here
+    // Only one input variable here
     inja::json pt, ept;
     pt["x"] = xargs[0]; pt["y"] = row[n - 1];
     ept["x"] = xargs[0]; ept["y"] = yest;
@@ -498,7 +518,8 @@ inja::json data_to_json( karnode_ptr out ) {
 
 
 int main() {
-    // kardataset_sample(1, target_test_1, 30, "C:\\Users\\chauv\\Documents\\ds_train.dat");
+    //kardataset_sample(1, target_test_1, 200, "C:\\Users\\chauv\\Documents\\ds_train.dat");
+    //return 0;
 
     // A 1/3/1 KAN
     karedge_ptr* inners = new karedge_ptr[3];
