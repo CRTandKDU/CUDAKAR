@@ -10,7 +10,7 @@
 
 </head>
 <body>
-    <!-- Create divs where the graph will take place -->
+    <!-- Create divs where graphing will take place -->
     <table>
         <thead style="font-size: 24px !important; color: #1014c3;">
             <td>Inner Funcs</td>
@@ -19,15 +19,11 @@
         </thead>
         <tr>
             <td>
-                <div class="inner_funcviz " id="funcviz_3"></div>
-                <div class="inner_funcviz " id="funcviz_4"></div>
-                <div class="inner_funcviz " id="funcviz_5"></div>
+                {% for i in range(ninner) %}<div class="inner_funcviz " id="ifuncviz_{{ loop.index1 }}"></div>{% endfor %}
             </td>
         
             <td>
-                <div class="outer_funcviz " id="funcviz_0"></div>
-                <div class="outer_funcviz " id="funcviz_1"></div>
-                <div class="outer_funcviz " id="funcviz_2"></div>
+                {% for i in range(ninner) %}<div class="outer_funcviz " id="ofuncviz_{{ loop.index1 }}"></div>{% endfor %}
             </td>
 
             <td>

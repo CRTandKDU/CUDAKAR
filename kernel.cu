@@ -516,25 +516,26 @@ inja::json data_to_json( karnode_ptr out ) {
     return info;
 }
 
+#define NINNER 4
 
 int main() {
     //kardataset_sample(1, target_test_1, 200, "C:\\Users\\chauv\\Documents\\ds_train.dat");
     //return 0;
 
-    // A 1/3/1 KAN
-    karedge_ptr* inners = new karedge_ptr[3];
-    karedge_ptr* outers = new karedge_ptr[3];
-    karnode_ptr* subnodes = new karnode_ptr[3];
+    // A 1(7)3(11)1 KAN
+    karedge_ptr* inners = new karedge_ptr[NINNER];
+    karedge_ptr* outers = new karedge_ptr[NINNER];
+    karnode_ptr* subnodes = new karnode_ptr[NINNER];
     karnode_ptr out;
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < NINNER; i++) {
         inners[i] = karedge_new(7, 0., 3.14159265);
         outers[i] = karedge_new(11, 0., 3.14159265);
         subnodes[i] = karnode_new(1, KAR_INNERNODE);
         subnodes[i]->edges = &inners[i];
     }
-    out = karnode_new(3, KAR_OUTERNODE);
-    for (int i = 0; i < 3; i++) {
+    out = karnode_new(NINNER, KAR_OUTERNODE);
+    for (int i = 0; i < NINNER; i++) {
         out->edges[i] = outers[i];
         out->subnodes[i] = subnodes[i];
     }
@@ -557,6 +558,7 @@ int main() {
         inja::json data = data_to_json( out );  
         inja::Environment env;
         data["title"] = "Dashboard";
+        data["ninner"] = NINNER;
         inja::Template temp = env.parse_template("templates/dashboard.html");
         std::string resp = env.render(temp, data);
 
